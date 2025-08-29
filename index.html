@@ -11,6 +11,12 @@
     --muted: #666;
     --accent: #3b82f6;
     --card: #f8fafc;
+    --progress-bg: #e5e7eb;
+    --tone1: #e11d48; /* red-600 */
+    --tone2: #f59e0b; /* amber-500 */
+    --tone3: #10b981; /* emerald-500 */
+    --tone4: #3b82f6; /* blue-500 */
+    --tone5: #6b7280; /* gray-500 */
   }
   html, body { margin: 0; padding: 0; background: var(--bg); color: var(--fg); font-family: system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans", "DejaVu Sans", Arial, "Helvetica Neue", Helvetica, sans-serif; }
   header { padding: 16px 20px; border-bottom: 1px solid #e5e7eb; display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; }
@@ -30,22 +36,25 @@
   .card {
     background: var(--card); border: 1px solid #e5e7eb; border-radius: 14px; padding: 16px;
   }
-  .prompt { min-height: 220px; /* tall for big Hanzi */ padding: 10px; display: flex; align-items: center; justify-content: center; border-radius: 12px; background: #fff; border: 1px dashed #cbd5e1; }
-  .prompt .hanzi { font-size: var(--hanzi-size, 72px); font-family: "Noto Sans CJK SC","Source Han Sans SC","WenQuanYi Zen Hei","PingFang SC","Microsoft YaHei","SimHei", "Droid Sans Fallback", "Noto Sans", "DejaVu Sans", Arial, sans-serif; line-height: 1.1; }
+  .prompt { min-height: 240px; padding: 10px; display: flex; align-items: center; justify-content: center; border-radius: 12px; background: #fff; border: 1px dashed #cbd5e1; }
+  .prompt .hanzi { font-size: var(--hanzi-size, 72px); font-family: "Noto Sans CJK SC","Source Han Sans SC","WenQuanYi Zen Hei","PingFang SC","Microsoft YaHei","SimHei","Droid Sans Fallback","Noto Sans","DejaVu Sans", Arial, sans-serif; line-height: 1.1; }
   .prompt .latin { font-size: 32px; }
-  .answer {
-    min-height: 120px; padding: 12px; border-radius: 12px; background: #fff; border: 1px dashed #e2e8f0; font-size: 18px;
-  }
+  .answer { min-height: 120px; padding: 12px; border-radius: 12px; background: #fff; border: 1px dashed #e2e8f0; font-size: 18px; }
   .stats { color: var(--muted); font-size: 13px; }
   .sep { height: 1px; background: #e5e7eb; margin: 10px 0; }
   .controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
   .grow { flex: 1 1 auto; }
   .hidden { display: none !important; }
+  .tone1 { color: var(--tone1); } .tone2 { color: var(--tone2); } .tone3 { color: var(--tone3); } .tone4 { color: var(--tone4); } .tone5 { color: var(--tone5); }
 
-  /* Print layout */
+  .progress-wrap { display:flex; align-items:center; gap:10px; margin-top:10px; }
+  .progress { flex:1 1 auto; height: 10px; background: var(--progress-bg); border-radius: 9999px; overflow: hidden; }
+  .progress .bar { height: 100%; width: 0%; background: var(--accent); transition: width .2s ease; }
+  .progress-label { font-size: 12px; color: var(--muted); min-width: 120px; text-align: right; }
+
   @media print {
-    header, .toolbar, .controls, .stats, .app { display: none !important; }
-    #printable { display: block !important; }
+    header, .toolbar, .controls, .stats, .app, .progress-wrap { display: none !Important; }
+    #printable { display: block !Important; }
     body { background: #fff; }
   }
   #printable { display: none; }
@@ -58,14 +67,12 @@
     gap: 6px;
     margin-top: 12px;
   }
-  .grid .box {
-    height: 24px; border: 1px solid #ddd;
-  }
+  .grid .box { height: 24px; border: 1px solid #ddd; }
 </style>
 </head>
 <body>
 <header>
-  <h1>Hanzi Flashcards (Local)</h1>
+  <h1>Hanzi Flashcards</h1>
   <div class="stats" id="stats">Load a vocab file to start.</div>
 </header>
 <main>
@@ -73,7 +80,7 @@
     <div class="row">
       <label>Vocab file (CSV/TSV/JSON):</label>
       <input id="file" type="file" accept=".csv,.tsv,.json" />
-      <button id="load-sample" title="Loads a tiny sample embedded below for a quick demo">Load sample</button>
+      <button id="load-sample" title="Load a tiny demo">Load sample</button>
       <span class="grow"></span>
       <label>Lessons:</label>
       <input id="lessonSpec" type="text" value="1-10" size="14" />
@@ -90,6 +97,10 @@
     <div class="row">
       <button id="reset">Shuffle / Reset</button>
       <button id="printSheet">Print study sheet</button>
+      <span class="grow"></span>
+      <button id="saveState">Save progress</button>
+      <button id="loadState">Load progress</button>
+      <button id="clearState" title="Clear saved progress">Clear saved</button>
     </div>
   </section>
 
@@ -103,6 +114,10 @@
       <button id="missed">I missed it ✗</button>
       <button id="next">Next →</button>
     </div>
+    <div class="progress-wrap">
+      <div class="progress"><div class="bar" id="progressBar"></div></div>
+      <div class="progress-label" id="progressLabel">0% done</div>
+    </div>
   </section>
 
   <section id="printable">
@@ -113,12 +128,10 @@
 </main>
 
 <script>
-// ---------- Utilities ----------
 function normalizeHeader(h) {
   return String(h || "").trim().toLowerCase().replace(/\s+/g, "").replace(/_/g, "");
 }
 function parseCSV(text) {
-  // RFC4180-ish, handles quoted fields, CRLF/LF
   const lines = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
   const rows = [];
   for (let line of lines) {
@@ -184,15 +197,57 @@ function parseLessonSpec(spec, allLessons) {
       out.add(tok);
     }
   }
-  // constrain
   const filtered = new Set([...out].filter(l => all.has(l)));
   return filtered.size ? filtered : new Set(all);
 }
+function setStats(msg) { document.getElementById("stats").textContent = msg; }
+function showError(err){ alert(err && err.message ? err.message : String(err)); }
+function escapeHTML(s){ return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 
-// ---------- Data loading ----------
-let ALL_ENTRIES = [];       // flat array of {lesson, hanzi, pinyin, english}
-let GROUPED = new Map();    // lesson -> entries[]
-let SELECTED = new Set();   // selected lessons
+const toneMap = {
+  1: "āēīōūǖĀĒĪŌŪǕ",
+  2: "áéíóúǘÁÉÍÓÚǗ",
+  3: "ǎěǐǒǔǚǍĚǏǑǓǙ",
+  4: "àèìòùǜÀÈÌÒÙǛ"
+};
+const charToTone = (() => {
+  const m = new Map();
+  for (const [tone, chars] of Object.entries(toneMap)) {
+    for (const ch of chars) m.set(ch, parseInt(tone,10));
+  }
+  return m;
+})();
+function detectTone(token){
+  for (const ch of token) { if (charToTone.has(ch)) return charToTone.get(ch); }
+  const m = token.match(/([a-zA-ZüÜ]+)([1-4])$/);
+  if (m) return parseInt(m[2],10);
+  return 5;
+}
+
+function colorizePinyin(pinyin){
+  return pinyin.split(/(\s+)/).map(part => {
+    if (part.trim() === "") return part; // preserve spaces
+    // If this chunk contains diacritic vowels, color EACH diacritic character individually.
+    if (/[āēīōūǖáéíóúǘǎěǐǒǔǚàèìòùǜĀĒĪŌŪǕÁÉÍÓÚǗǍĚǏǑǓǙ]/.test(part)) {
+      let out = "";
+      for (const ch of part) {
+        const tone = charToTone.get(ch);
+        if (tone) out += `<span class="tone${tone}">${escapeHTML(ch)}</span>`;
+        else out += escapeHTML(ch);
+      }
+      return out;
+    }
+    // Otherwise, support numbered-pinyin groups like "shang4hai3" (color letters per digit).
+    return part.replace(/([A-Za-züÜ]+)([1-4])/g, (m, letters, num) => {
+      return `<span class="tone${num}">${escapeHTML(letters)}</span>${escapeHTML(num)}`;
+    });
+  }).join("");
+}
+
+      let ALL_ENTRIES = [];
+let GROUPED = new Map();
+let SELECTED = new Set();
+
 function entriesForSelected() {
   const out = [];
   for (const [l, arr] of GROUPED.entries()) {
@@ -213,9 +268,7 @@ async function loadFile(file) {
       for (const [lesson, items] of Object.entries(data.lessons)) {
         for (const it of items) rows.push({...it, lesson});
       }
-    } else {
-      throw new Error("Unsupported JSON format.");
-    }
+    } else { throw new Error("Unsupported JSON format."); }
     ALL_ENTRIES = rows.map(r => ({
       lesson: String(r.lesson ?? r.Lesson ?? "1"),
       hanzi: String(r.hanzi ?? r.Hanzi ?? ""),
@@ -232,9 +285,8 @@ async function loadFile(file) {
       pinyin: norm.indexOf("pinyin"),
       english: norm.indexOf("english"),
     };
-    // Validate headers
     if (idx.hanzi === -1 && idx.pinyin === -1 && idx.english === -1) {
-      throw new Error("Could not find any of the required headers: hanzi, pinyin, english. Make sure your first row has: lesson, hanzi, pinyin, english.");
+      throw new Error("Missing headers. First row should be: lesson, hanzi, pinyin, english (case-insensitive).");
     }
     ALL_ENTRIES = [];
     for (let i = 1; i < table.length; i++) {
@@ -258,7 +310,6 @@ async function loadFile(file) {
   resetDeck();
 }
 
-// Tiny embedded sample for quick demo (not exhaustive)
 const SAMPLE = [
   {lesson:"1", hanzi:"你", pinyin:"nǐ", english:"you"},
   {lesson:"1", hanzi:"好", pinyin:"hǎo", english:"good"},
@@ -266,12 +317,13 @@ const SAMPLE = [
   {lesson:"2", hanzi:"的", pinyin:"de", english:"(possessive particle)"},
 ];
 
-// ---------- Leitner-lite deck ----------
 class Leitner {
   constructor(items) {
     this.boxes = [Array.from(items), [], []];
+    this.done = [];
     this.last = null;
     this.history = {correct:0, missed:0};
+    this.total = items.length;
   }
   _pickBox() {
     const sizes = this.boxes.map(b => b.length);
@@ -301,8 +353,11 @@ class Leitner {
       const b = this.boxes[i];
       if (b.length && b[0] === this.last) {
         b.shift();
-        if (ok) this.boxes[Math.min(i+1,2)].push(this.last);
-        else this.boxes[0].push(this.last);
+        if (ok) {
+          this.done.push(this.last);
+        } else {
+          this.boxes[0].push(this.last);
+        }
         break;
       }
     }
@@ -319,11 +374,14 @@ class Leitner {
     }
     this.last = null;
   }
+  remaining() { return this.boxes.reduce((a,b)=>a+b.length,0); }
   stats() {
     return {
       boxSizes: this.boxes.map(b => b.length),
       history: {...this.history},
-      remaining: this.boxes.reduce((a,b)=>a+b.length,0),
+      remaining: this.remaining(),
+      done: this.done.length,
+      total: this.total
     };
   }
 }
@@ -333,7 +391,6 @@ let REVEALED = false;
 
 function currentItems() {
   const items = entriesForSelected();
-  // Shuffle
   for (let i = items.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i+1));
     [items[i], items[j]] = [items[j], items[i]];
@@ -349,21 +406,33 @@ function resetDeck() {
   updateStats();
 }
 
-function setStats(msg) { document.getElementById("stats").textContent = msg; }
-function showError(err){ alert(err && err.message ? err.message : String(err)); }
-
 function updateStats() {
   const st = DECK.stats();
-  setStats(`Remaining: ${st.remaining} | Boxes: [${st.boxSizes.join(", ")}] | Correct: ${st.history.correct} Missed: ${st.history.missed}`);
+  setStats(`Remaining: ${st.remaining} | Done: ${st.done}/${st.total} | Boxes: [${st.boxSizes.join(", ")}] | Correct: ${st.history.correct} Missed: ${st.history.missed}`);
+  const pct = st.total ? Math.round((st.done / st.total) * 100) : 0;
+  document.getElementById("progressBar").style.width = pct + "%";
+  document.getElementById("progressLabel").textContent = `${pct}% done`;
 }
 
 function formatQA(e, side) {
   if (side === "hanzi") {
-    return {prompt: e.hanzi, promptClass: "hanzi", answer: `Pinyin: ${e.pinyin}<br>English: ${e.english}<br>Lesson: ${e.lesson}`};
+    return {
+      promptHTML: escapeHTML(e.hanzi),
+      promptClass: "hanzi",
+      answerHTML: `Pinyin: ${colorizePinyin(e.pinyin)}<br>English: ${escapeHTML(e.english)}<br>Lesson: ${escapeHTML(e.lesson)}`
+    };
   } else if (side === "pinyin") {
-    return {prompt: e.pinyin, promptClass: "latin", answer: `Hanzi: ${e.hanzi}<br>English: ${e.english}<br>Lesson: ${e.lesson}`};
+    return {
+      promptHTML: colorizePinyin(e.pinyin),
+      promptClass: "latin",
+      answerHTML: `Hanzi: ${escapeHTML(e.hanzi)}<br>English: ${escapeHTML(e.english)}<br>Lesson: ${escapeHTML(e.lesson)}`
+    };
   } else {
-    return {prompt: e.english, promptClass: "latin", answer: `Hanzi: ${e.hanzi}<br>Pinyin: ${e.pinyin}<br>Lesson: ${e.lesson}`};
+    return {
+      promptHTML: escapeHTML(e.english),
+      promptClass: "latin",
+      answerHTML: `Hanzi: ${escapeHTML(e.hanzi)}<br>Pinyin: ${colorizePinyin(e.pinyin)}<br>Lesson: ${escapeHTML(e.lesson)}`
+    };
   }
 }
 
@@ -379,79 +448,112 @@ function renderCard(newPick=false) {
     return;
   }
   const qa = formatQA(card, promptSide);
-  promptEl.textContent = qa.prompt;
+  promptEl.innerHTML = qa.promptHTML;
   promptEl.className = qa.promptClass;
-  answerEl.innerHTML = REVEALED ? qa.answer : "";
-  // Update prompt font size
+  answerEl.innerHTML = REVEALED ? qa.answerHTML : "";
   const size = parseInt(document.getElementById("hanziSize").value || "72", 10);
   document.documentElement.style.setProperty("--hanzi-size", size + "px");
-  // Toggle button label
   document.getElementById("toggle").textContent = REVEALED ? "Hide" : "Show";
 }
 
-function toggleReveal() {
-  REVEALED = !REVEALED;
-  renderCard(false);
-}
+function toggleReveal() { REVEALED = !REVEALED; renderCard(false); }
+function grade(ok) { DECK.grade(ok); REVEALED = false; document.getElementById("toggle").textContent = "Show"; renderCard(true); updateStats(); }
+function nextCard() { DECK.skip(); REVEALED = false; document.getElementById("toggle").textContent = "Show"; renderCard(true); }
 
-function grade(ok) {
-  DECK.grade(ok);
-  REVEALED = false;
-  document.getElementById("toggle").textContent = "Show";
-  renderCard(true);
-  updateStats();
-}
-
-function nextCard() {
-  DECK.skip();
-  REVEALED = false;
-  document.getElementById("toggle").textContent = "Show";
-  renderCard(true);
-}
-
-// ---------- Print study sheet ----------
 function buildPrintArea() {
   const items = entriesForSelected();
-  // Table
   const tblWrap = document.getElementById("printTable");
   const gridWrap = document.getElementById("printGrid");
-  tblWrap.innerHTML = "";
-  gridWrap.innerHTML = "";
+  tblWrap.innerHTML = ""; gridWrap.innerHTML = "";
   const table = document.createElement("table");
   const thead = document.createElement("thead");
   const trh = document.createElement("tr");
-  ["Lesson","Hanzi","Pinyin","English"].forEach(h => {
-    const th = document.createElement("th"); th.textContent = h; trh.appendChild(th);
-  });
-  thead.appendChild(trh);
-  table.appendChild(thead);
+  ["Lesson","Hanzi","Pinyin","English"].forEach(h => { const th = document.createElement("th"); th.textContent = h; trh.appendChild(th); });
+  thead.appendChild(trh); table.appendChild(thead);
   const tbody = document.createElement("tbody");
-  items.sort((a,b)=> (a.lesson === b.lesson ? a.hanzi.localeCompare(b.hanzi) : String(a.lesson).localeCompare(String(b.lesson))));
+  items.sort((a,b)=> (a.lesson === b.lesson ? String(a.hanzi).localeCompare(String(b.hanzi)) : String(a.lesson).localeCompare(String(b.lesson))));
   for (const e of items) {
     const tr = document.createElement("tr");
-    [e.lesson, e.hanzi, e.pinyin, e.english].forEach(v => {
-      const td = document.createElement("td"); td.textContent = v; tr.appendChild(td);
-    });
+    [e.lesson, e.hanzi, e.pinyin, e.english].forEach(v => { const td = document.createElement("td"); td.textContent = v; tr.appendChild(td); });
     tbody.appendChild(tr);
   }
-  table.appendChild(tbody);
-  tblWrap.appendChild(table);
-  // Grid (simple handwriting squares)
-  const cols = 12;
-  const total = Math.max(items.length, cols*6); // at least 6 rows
-  for (let i=0; i<total; i++) {
-    const b = document.createElement("div");
-    b.className = "box";
-    gridWrap.appendChild(b);
+  table.appendChild(tbody); tblWrap.appendChild(table);
+  const cols = 12; const total = Math.max(items.length, cols*6);
+  for (let i=0; i<total; i++) { const b = document.createElement("div"); b.className = "box"; gridWrap.appendChild(b); }
+}
+function printSheet() { buildPrintArea(); window.print(); }
+
+function cardKey(e){ return `${e.lesson}|${e.hanzi}|${e.pinyin}|${e.english}`; }
+function snapshotState(){
+  const all = new Map();
+  for (const b of DECK.boxes) for (const e of b) all.set(cardKey(e), e);
+  for (const e of DECK.done) all.set(cardKey(e), e);
+  const keyToIdx = new Map(); const entries = []; let i=0;
+  for (const [k, e] of all.entries()){ keyToIdx.set(k, i); entries.push(e); i++; }
+  const mapToIdxArr = (arr) => arr.map(e => keyToIdx.get(cardKey(e)));
+  const boxes = DECK.boxes.map(mapToIdxArr);
+  const done = mapToIdxArr(DECK.done);
+  const lastKey = DECK.last ? cardKey(DECK.last) : null;
+  const data = {
+    version: 1,
+    when: Date.now(),
+    ui: {
+      lessonSpec: document.getElementById("lessonSpec").value,
+      promptSide: document.getElementById("promptSide").value,
+      hanziSize: document.getElementById("hanziSize").value
+    },
+    entries,
+    boxes,
+    done,
+    last: lastKey ? (keyToIdx.get(lastKey)) : null,
+    history: DECK.history,
+    total: DECK.total
+  };
+  return data;
+}
+function saveProgress(){
+  const data = snapshotState();
+  localStorage.setItem("hanziFlashcardsSave", JSON.stringify(data));
+  alert("Progress saved locally.");
+}
+function loadProgress(){
+  const raw = localStorage.getItem("hanziFlashcardsSave");
+  if (!raw) { alert("No saved progress found."); return; }
+  let data;
+  try { data = JSON.parse(raw); } catch(e){ showError("Saved data is corrupted."); return; }
+  if (!data || !Array.isArray(data.entries) || !Array.isArray(data.boxes)) { showError("Saved data missing fields."); return; }
+
+  ALL_ENTRIES = data.entries;
+  GROUPED = groupByLesson(ALL_ENTRIES);
+  const allLessons = [...GROUPED.keys()];
+  const spec = data.ui?.lessonSpec || document.getElementById("lessonSpec").value;
+  document.getElementById("lessonSpec").value = spec;
+  SELECTED = parseLessonSpec(spec, allLessons);
+
+  const idxToEntry = (idx) => ALL_ENTRIES[idx];
+  const boxes = data.boxes.map(arr => arr.map(idxToEntry));
+  const done = (data.done || []).map(idxToEntry);
+  DECK = new Leitner([]);
+  DECK.boxes = boxes;
+  DECK.done = done;
+  DECK.last = (data.last != null) ? idxToEntry(data.last) : null;
+  DECK.history = data.history || {correct:0, missed:0};
+  DECK.total = data.total || (boxes[0].length + boxes[1].length + boxes[2].length + done.length);
+
+  if (data.ui) {
+    if (data.ui.promptSide) document.getElementById("promptSide").value = data.ui.promptSide;
+    if (data.ui.hanziSize) document.getElementById("hanziSize").value = data.ui.hanziSize;
   }
+  REVEALED = false;
+  renderCard(true);
+  updateStats();
+  setStats("Progress loaded.");
+}
+function clearProgress(){
+  localStorage.removeItem("hanziFlashcardsSave");
+  alert("Saved progress cleared.");
 }
 
-function printSheet() {
-  buildPrintArea();
-  window.print();
-}
-
-// ---------- Event wiring ----------
 document.getElementById("file").addEventListener("change", (e) => {
   const f = e.target.files && e.target.files[0];
   if (!f) return;
@@ -479,6 +581,9 @@ document.getElementById("missed").addEventListener("click", () => grade(false));
 document.getElementById("next").addEventListener("click", nextCard);
 document.getElementById("reset").addEventListener("click", resetDeck);
 document.getElementById("printSheet").addEventListener("click", printSheet);
+document.getElementById("saveState").addEventListener("click", saveProgress);
+document.getElementById("loadState").addEventListener("click", loadProgress);
+document.getElementById("clearState").addEventListener("click", clearProgress);
 </script>
 </body>
 </html>
